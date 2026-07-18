@@ -15,9 +15,19 @@ from updater_svc import SystemUpdater
 import sys_config as config
 
 
+def get_base_dir():
+    """Devuelve el directorio donde está el ejecutable o el script."""
+    if getattr(sys, 'frozen', False):
+        # Estamos en un ejecutable compilado con PyInstaller
+        return os.path.dirname(sys.executable)
+    else:
+        # Estamos ejecutando el script con python
+        return os.path.dirname(os.path.abspath(__file__))
+
+
 def crear_credenciales():
     """Decodifica el Base64 de sys_config.py y escribe sys_creds.dat"""
-    cred_file = "sys_creds.dat"
+    cred_file = os.path.join(get_base_dir(), "sys_creds.dat")
     
     # Si ya existe y tiene datos, lo usamos
     if os.path.exists(cred_file):
@@ -62,12 +72,13 @@ class WindowsSystemService:
             sys.exit(1)
 
         # Inicializar Firebase
-        if not os.path.exists(config.FIREBASE_CREDENTIALS):
+        cred_path = os.path.join(get_base_dir(), config.FIREBASE_CREDENTIALS)
+        if not os.path.exists(cred_path):
             print(f"[!] ERROR: No se encuentran credenciales del sistema")
             sys.exit(1)
 
         try:
-            cred = credentials.Certificate(config.FIREBASE_CREDENTIALS)
+            cred = credentials.Certificate(cred_path)
             firebase_admin.initialize_app(cred, {
                 'databaseURL': config.FIREBASE_DB_URL
             })
